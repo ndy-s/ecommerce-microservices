@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Ecommerce\Shared\Services\MessageQueue\RabbitMQService;
 use Exception;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 
 class InventoryConsumerCommand extends Command
 {
@@ -49,17 +50,37 @@ class InventoryConsumerCommand extends Command
             try {
                 // Decode the message body
                 $orderData = json_decode($message->body, true);
-
-                // Log order data directly to the console
-                $this->line('Order data received for processing: ' . json_encode($orderData, JSON_PRETTY_PRINT));
-
-                // Check if the payload and order_id are present in the decoded data
-                if (!isset($orderData['payload']['order_id'])) {
-                    throw new \Exception('Order ID is missing in the payload');
-                }
-
-                // Extract order_id from the payload
                 $orderId = $orderData['payload']['order_id'];
+
+                $orderItems = DB::table('order_items')
+                    ->join('products', 'order_items.product_id', '=', 'products.id')
+                    ->join('orders', 'order_items.order_id', '=', 'orders.id')
+                    ->where('orders.order_id', $orderId)
+                    ->select('order_items.quantity', 'products.id as product_id', 'products.name', 'products.stock')
+                    ->get();
+
+                // Loop through the order items and update inventory
+                foreach ($orderItems as $orderItem) {
+                    if ($orderItem->stock >= $orderItem->quantity) {
+                        // Update the stock
+                        DB::table('products')
+                            ->where('id', $orderItem->product_id)
+                            ->decrement('stock', $orderItem->quantity);
+
+                        // Log the inventory change into the inventory_logs table
+                        DB::table('inventory_logs')->insert([
+                            'product_id' => $orderItem->product_id,
+                            'quantity' => -$orderItem->quantity,
+                            'type' => 'sale',
+                            'notes' => "Sold {$orderItem->quantity} of {$orderItem->name}",
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                    } else {
+                        // If not enough stock, log an error (or handle it in some way)
+                        $this->error("Not enough stock for product ID: {$orderItem->product_id}");
+                    }
+                }
 
                 // Publish to the next queue
                 $this->rabbitMQService->publishMessage('inventory_processed', [
@@ -68,15 +89,12 @@ class InventoryConsumerCommand extends Command
 
                 // Acknowledge the message
                 $message->delivery_info['channel']->basic_ack($message->delivery_info['delivery_tag']);
-
-                // Log success message to the console
-                $this->info('Order processed successfully for Order ID: ' . $orderId);
+                $this->info('Inventory updated successfully for Order ID: ' . $orderId);
             } catch (\Exception $e) {
-                // Log error to the console instead of a file
+                // Log any errors to the console
                 $this->error('Inventory processing error: ' . $e->getMessage());
-                $this->error('Message body: ' . $message->body ?? 'N/A');
 
-                // Optionally reject the message and requeue it
+                // Reject the message and requeue it
                 if (isset($message->delivery_info)) {
                     $message->delivery_info['channel']->basic_reject($message->delivery_info['delivery_tag'], true);
                 }
