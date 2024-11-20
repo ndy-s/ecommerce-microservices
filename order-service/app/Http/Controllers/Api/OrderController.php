@@ -1,7 +1,11 @@
 <?php
 
-namespace App\Http\Controllers;
+namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Controller;
+use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\Product;
 use Ecommerce\Shared\DTOs\OrderDTO;
 use Ecommerce\Shared\Events\OrderCreated;
 use Ecommerce\Shared\Services\MessageQueue\RabbitMQService;
@@ -54,8 +58,25 @@ class OrderController extends Controller
                 'items' => $validated['items'],
             ]);
 
-            // Log the order data (good practice for debugging)
-            Log::info('Order placed successfully', ['order' => $orderDTO]);
+            // Save Order in Database
+            $order = Order::query()->create([
+                'order_id' => $orderDTO->orderId,
+                'user_id' => $orderDTO->userId,
+                'total' => $orderDTO->total,
+                'status' => 'pending',
+            ]);
+
+            // Save Order Items
+            foreach ($orderDTO->items as $item) {
+                $product = Product::query()->findOrFail($item['product_id']);
+
+                OrderItem::query()->create([
+                    'order_id' => $order->id,
+                    'product_id' => $item['product_id'],
+                    'quantity' => $item['quantity'],
+                    'price' => $product->price,
+                ]);
+            }
 
             // Create and publish the event using DTO
             $event = new OrderCreated($orderDTO);
