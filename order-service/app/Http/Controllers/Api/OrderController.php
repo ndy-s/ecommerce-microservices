@@ -63,7 +63,7 @@ class OrderController extends Controller
                 'order_id' => $orderDTO->orderId,
                 'user_id' => $orderDTO->userId,
                 'total' => $orderDTO->total,
-                'status' => 'pending',
+                'status' => $orderDTO->status,
             ]);
 
             // Save Order Items
