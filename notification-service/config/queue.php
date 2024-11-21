@@ -84,6 +84,10 @@ return [
             'ssl_options' => [
                 'verify_peer' => false,
             ],
+            'exchange_declare' => true,
+            'queue_declare' => true,
+            'queue_bind' => true,
+            'vhost' => '/',
         ],
     ],
 

@@ -4,12 +4,19 @@
     "description": "The skeleton application for the Laravel framework.",
     "keywords": ["laravel", "framework"],
     "license": "MIT",
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../shared"
+        }
+    ],
     "require": {
         "php": "^8.2",
         "laravel/framework": "^11.9",
         "laravel/tinker": "^2.9",
         "php-amqplib/php-amqplib": "^3.7",
-        "vladimir-yuldashev/laravel-queue-rabbitmq": "^14.1"
+        "vladimir-yuldashev/laravel-queue-rabbitmq": "^14.1",
+        "ecommerce/shared": "dev-main"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",

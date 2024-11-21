@@ -2,6 +2,8 @@
 
 namespace Database\Seeders;
 
+use App\Models\Notification;
+use App\Models\NotificationLog;
 use App\Models\User;
 // use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -13,11 +15,10 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        // Seed Notifications
+        Notification::factory(15)->create();
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        // Seed NotificationLogs
+        NotificationLog::factory(30)->create();
     }
 }
