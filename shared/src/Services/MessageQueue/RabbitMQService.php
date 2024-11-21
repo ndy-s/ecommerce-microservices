@@ -78,6 +78,8 @@ class RabbitMQService
         array $arguments = []
     ): void {
         $arguments['x-queue-type'] = ['S', 'quorum'];
+        $arguments['x-dead-letter-exchange'] = 'dlx_exchange';
+        $arguments['x-dead-letter-routing-key'] = "{$queue}_dlq";
 
         $this->channel->queue_declare(
             $queue,
@@ -87,6 +89,15 @@ class RabbitMQService
             $autoDelete,
             false,
             $arguments
+        );
+
+        // Declare DLQ
+        $this->channel->queue_declare(
+            "{$queue}_dlq",
+            false,
+            $durable,
+            $exclusive,
+            $autoDelete
         );
     }
 
@@ -102,13 +113,14 @@ class RabbitMQService
     }
 
     /**
-     * Publish message to queue
+     * Publish message to queue with retry on failure
      */
     public function publishMessage(
         string $routingKey,
         array $data,
         ?string $queue = null,
-        ?string $exchange = null
+        ?string $exchange = null,
+        int $retries = 3
     ): void {
         $queue = $queue ?? $routingKey;
         $exchange = $exchange ?? $this->config['exchange'];
@@ -129,7 +141,22 @@ class RabbitMQService
             ]
         );
 
-        $this->channel->basic_publish($msg, $exchange, $routingKey);
+        $attempt = 0;
+        while ($attempt < $retries) {
+            try {
+                $this->channel->basic_publish($msg, $exchange, $routingKey);
+                return;
+            } catch (\Exception $e) {
+                $attempt++;
+                error_log("Publish failed (attempt {$attempt}): " . $e->getMessage());
+                if ($attempt >= $retries) {
+                    // Log failure and fallback
+                    error_log("Message permanently failed: " . json_encode($data));
+
+                    // Optional: Save to a database or file for manual retry
+                }
+            }
+        }
     }
 
     /**
@@ -139,7 +166,8 @@ class RabbitMQService
         string $routingKey,
         callable $callback,
         ?string $queue = null,
-        ?string $exchange = null
+        ?string $exchange = null,
+        int $maxRetries = 3
     ): void {
         $queue = $queue ?? $routingKey;
         $exchange = $exchange ?? $this->config['exchange'];
@@ -162,14 +190,35 @@ class RabbitMQService
             false,
             false,
             false,
-            $callback
+            function ($message) use ($callback, $maxRetries) {
+                $retryCount = 0;
+                while ($retryCount < $maxRetries) {
+                    try {
+                        // Process the message
+                        $callback($message);
+                        // Acknowledge if successful
+                        $message->delivery_info['channel']->basic_ack($message->delivery_info['delivery_tag']);
+                        return;
+                    } catch (\Exception $e) {
+                        $retryCount++;
+                        error_log("Processing failed (attempt {$retryCount}): " . $e->getMessage());
+
+                        if ($retryCount >= $maxRetries) {
+                            // Move to Dead-Letter Queue or log the failure
+                            error_log("Message permanently failed: " . $message->body);
+                            $message->delivery_info['channel']->basic_reject($message->delivery_info['delivery_tag'], false); // Reject and discard
+                            return;
+                        }
+                    }
+                }
+            }
         );
 
         while ($this->channel->is_consuming()) {
             try {
                 $this->channel->wait();
             } catch (\Exception $e) {
-                error_log($e->getMessage());
+                error_log("Error during consume: " . $e->getMessage());
                 continue;
             }
         }
