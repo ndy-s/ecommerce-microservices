@@ -56,6 +56,9 @@ This project is a simplified E-Commerce system built using a microservices archi
 **Example API Call**
 <br>To create an order:
 ```
+POST /api/orders  
+Content-Type: application/json
+
 {
     "user_id": 1,
     "items": [
